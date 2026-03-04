@@ -167,14 +167,30 @@ async function renderLiveData(container, gameId) {
         ${goals.map(g => buildGoalPlay(g, playerMap, away, home)).join('')}
       </div>` : ''}
 
-      <h3 class="section-heading">Recent Plays</h3>
-      <div class="play-feed">
-        ${recentPlays.map(p => buildPlayItem(p, playerMap, away, home)).join('')}
+      <div class="view-toggle" id="live-view-toggle">
+        <button class="view-toggle-btn active" data-view="pbp">Play-by-Play</button>
+        <button class="view-toggle-btn" data-view="boxscore">Box Score</button>
       </div>
 
-      ${buildLiveBoxScore(boxscore)}
+      <div id="live-view-content">
+        ${buildLivePlayByPlay(pbp, playerMap, away, home)}
+      </div>
     </div>
   `;
+
+  // Wire up view toggle
+  container.querySelectorAll('#live-view-toggle .view-toggle-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      container.querySelectorAll('#live-view-toggle .view-toggle-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      const viewEl = document.getElementById('live-view-content');
+      if (viewEl) {
+        viewEl.innerHTML = btn.dataset.view === 'pbp'
+          ? buildLivePlayByPlay(pbp, playerMap, away, home)
+          : buildLiveBoxScore(boxscore);
+      }
+    });
+  });
 }
 
 function buildGoalPlay(goal, playerMap, away, home) {
@@ -320,6 +336,95 @@ function buildLiveOdds(odds, awayAbbr, homeAbbr) {
       </div>
       <div class="odds-disclaimer">Odds provided by ${providerName}. Lines subject to change.</div>
     </div>`;
+}
+
+function buildLivePlayByPlay(pbp, playerMap, away, home) {
+  const plays = pbp?.plays || [];
+  if (!plays.length) return '<p style="color:var(--text-secondary);padding:var(--space-lg)">No play-by-play data yet</p>';
+
+  // Group plays by period
+  const periods = {};
+  for (const play of plays) {
+    const pNum = play.periodDescriptor?.number || 1;
+    const pType = play.periodDescriptor?.periodType || 'REG';
+    const key = pType === 'OT' ? 'OT' : pType === 'SO' ? 'SO' : `P${pNum}`;
+    if (!periods[key]) periods[key] = [];
+    periods[key].push(play);
+  }
+
+  let html = '<div class="pbp-list">';
+  const periodKeys = Object.keys(periods);
+
+  for (const pKey of periodKeys) {
+    html += `<div class="pbp-period-header">${pKey === 'OT' ? 'Overtime' : pKey === 'SO' ? 'Shootout' : `Period ${pKey.slice(1)}`}</div>`;
+
+    const periodPlays = periods[pKey]
+      .filter(p => ['goal', 'penalty', 'shot-on-goal', 'hit', 'blocked-shot', 'faceoff', 'giveaway', 'takeaway', 'period-start', 'period-end', 'stoppage'].includes(p.typeDescKey))
+      .reverse();
+
+    for (const play of periodPlays) {
+      const type = play.typeDescKey;
+      const time = play.timeInPeriod || '';
+      const det = play.details || {};
+      const eventTeamId = det.eventOwnerTeamId;
+      const teamLogo = eventTeamId === away?.id ? (away?.logo || '') : eventTeamId === home?.id ? (home?.logo || '') : '';
+      const teamAbbr = eventTeamId === away?.id ? away?.abbrev : eventTeamId === home?.id ? home?.abbrev : '';
+
+      if (type === 'period-start' || type === 'period-end') {
+        html += `<div class="pbp-event pbp-period-start">${type === 'period-start' ? 'Period Start' : 'End of Period'}</div>`;
+        continue;
+      }
+
+      let cssClass = '';
+      let text = '';
+      let scoreUpdate = '';
+
+      if (type === 'goal') {
+        cssClass = 'pbp-goal';
+        const scorer = playerMap.get(det.scoringPlayerId);
+        const a1 = playerMap.get(det.assist1PlayerId);
+        const a2 = playerMap.get(det.assist2PlayerId);
+        text = `<strong>${scorer?.name || 'Goal'}</strong> (${det.scoringPlayerTotal || 0})`;
+        if (a1) text += ` from ${a1.name}`;
+        if (a2) text += ` and ${a2.name}`;
+        if (det.shotType) text += ` &middot; ${det.shotType}`;
+        scoreUpdate = `${det.awayScore || 0}-${det.homeScore || 0}`;
+      } else if (type === 'penalty') {
+        cssClass = 'pbp-penalty';
+        const player = playerMap.get(det.committedByPlayerId);
+        text = `<strong>${player?.name || 'Penalty'}</strong> &middot; ${det.descKey || ''} (${det.duration || 2} min)`;
+      } else if (type === 'shot-on-goal') {
+        const shooter = playerMap.get(det.shootingPlayerId);
+        text = `${shooter?.name || 'Shot'} &middot; shot on goal`;
+      } else if (type === 'hit') {
+        const hitter = playerMap.get(det.hittingPlayerId);
+        const hittee = playerMap.get(det.hitteePlayerId);
+        text = `${hitter?.name || '?'} hit ${hittee?.name || '?'}`;
+      } else if (type === 'blocked-shot') {
+        const blocker = playerMap.get(det.blockingPlayerId);
+        text = `${blocker?.name || '?'} blocked shot`;
+      } else if (type === 'faceoff') {
+        const winner = playerMap.get(det.winningPlayerId);
+        text = `${winner?.name || '?'} won faceoff`;
+      } else if (type === 'giveaway' || type === 'takeaway') {
+        const player = playerMap.get(det.playerId);
+        text = `${player?.name || '?'} ${type}`;
+      } else {
+        text = type.replace(/-/g, ' ');
+      }
+
+      html += `
+        <div class="pbp-event ${cssClass}">
+          <span class="pbp-time">${time}</span>
+          ${teamLogo ? `<img src="${teamLogo}" alt="${teamAbbr}" class="pbp-team-logo" loading="lazy">` : '<span style="width:20px"></span>'}
+          <span class="pbp-text">${text}</span>
+          ${scoreUpdate ? `<span class="pbp-score-update">${scoreUpdate}</span>` : ''}
+        </div>`;
+    }
+  }
+
+  html += '</div>';
+  return html;
 }
 
 function buildLiveBoxScore(boxscore) {

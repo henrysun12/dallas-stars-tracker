@@ -117,26 +117,33 @@ function renderGameData(container, data, team, liveMode) {
       </div>
 
       ${isLive ? buildLiveScorebar(data, isOurGame, team) : ''}
-      ${boxscore ? buildBoxScore(boxscore, usAbbr, oppAbbr) : ''}
+
+      ${boxscore || plays.length ? `
+      <div class="view-toggle" id="espn-view-toggle">
+        <button class="view-toggle-btn active" data-view="boxscore">Box Score</button>
+        <button class="view-toggle-btn" data-view="pbp">Play-by-Play</button>
+      </div>
+      <div id="espn-view-content">
+        ${boxscore ? buildBoxScore(boxscore, usAbbr, oppAbbr) : ''}
+      </div>` : ''}
+
       ${buildVideoClips(data)}
       ${buildOddsSection(data)}
       ${leaders.length ? buildLeaders(leaders) : ''}
-      ${buildScoringPlays(data, isOurGame, team)}
     </div>
   `;
 
-  // Wire video cards
-  container.querySelectorAll('.clip-card[data-video-url]').forEach(card => {
-    card.addEventListener('click', () => {
-      if (card.classList.contains('playing')) return;
-      const url = card.dataset.videoUrl;
-      const headline = card.querySelector('.clip-headline')?.textContent || '';
-      card.classList.add('playing');
-      card.innerHTML = `
-        <video controls autoplay playsinline style="width:100%;display:block;border-radius:var(--radius-md) var(--radius-md) 0 0">
-          <source src="${url}" type="video/mp4">
-        </video>
-        <div class="clip-info"><div class="clip-headline">${headline}</div></div>`;
+  // Wire view toggle (box score / play-by-play)
+  container.querySelectorAll('#espn-view-toggle .view-toggle-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      container.querySelectorAll('#espn-view-toggle .view-toggle-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      const viewEl = document.getElementById('espn-view-content');
+      if (viewEl) {
+        viewEl.innerHTML = btn.dataset.view === 'boxscore'
+          ? (boxscore ? buildBoxScore(boxscore, usAbbr, oppAbbr) : '<p style="color:var(--text-secondary);padding:var(--space-lg)">No box score data available</p>')
+          : buildEspnPlayByPlay(data, team);
+      }
     });
   });
 }
@@ -390,13 +397,13 @@ function buildVideoClips(data) {
     const mins = Math.floor(duration / 60);
     const secs = duration % 60;
     const durationStr = `${mins}:${secs.toString().padStart(2, '0')}`;
-    const videoUrl = v.links?.source?.href || v.links?.mobile?.source?.href || '';
+    const webUrl = v.links?.web?.href || v.links?.source?.href || '';
     const thumbnail = v.thumbnail || '';
 
-    if (!videoUrl) return '';
+    if (!webUrl) return '';
 
     return `
-      <div class="clip-card" data-video-url="${videoUrl}">
+      <a class="clip-card" href="${webUrl}" target="_blank" rel="noopener" style="text-decoration:none;color:inherit">
         <div class="clip-thumbnail">
           ${thumbnail ? `<img src="${thumbnail}" alt="" loading="lazy">` : ''}
           <div class="clip-play-overlay"><div class="clip-play-btn"></div></div>
@@ -405,7 +412,7 @@ function buildVideoClips(data) {
         <div class="clip-info">
           <div class="clip-headline">${headline}</div>
         </div>
-      </div>`;
+      </a>`;
   }).filter(Boolean).join('');
 
   if (!cards) return '';
@@ -413,4 +420,82 @@ function buildVideoClips(data) {
   return `
     <h3 class="section-heading">Video Highlights</h3>
     <div class="clips-grid">${cards}</div>`;
+}
+
+function buildEspnPlayByPlay(data, team) {
+  // ESPN play-by-play comes from different sources depending on sport
+  const scoringPlays = data?.scoringPlays || [];
+  const keyEvents = data?.keyEvents || [];
+  const allPlays = data?.plays || [];
+  const drives = data?.drives?.previous || [];
+
+  // For NFL, use drives
+  if (drives.length) {
+    let html = '<div class="pbp-list">';
+    for (const drive of drives.reverse().slice(0, 20)) {
+      const result = drive.displayResult || drive.result || '';
+      const teamLogo = drive.team?.logos?.[0]?.href || '';
+      const teamAbbr = drive.team?.abbreviation || '';
+      const desc = drive.description || '';
+      const yards = drive.yards || 0;
+      const numPlays = drive.offensivePlays || 0;
+      const timeElapsed = drive.timeElapsed?.displayValue || '';
+
+      html += `<div class="pbp-period-header">${teamAbbr} Drive &middot; ${result}</div>`;
+      html += `<div class="pbp-event">
+        <span class="pbp-time">${timeElapsed}</span>
+        ${teamLogo ? `<img src="${teamLogo}" alt="${teamAbbr}" class="pbp-team-logo" loading="lazy">` : ''}
+        <span class="pbp-text">${desc || `${numPlays} plays, ${yards} yards`}</span>
+      </div>`;
+
+      for (const play of (drive.plays || []).slice(-5)) {
+        const isScoring = play.scoringPlay;
+        html += `<div class="pbp-event ${isScoring ? 'pbp-goal' : ''}">
+          <span class="pbp-time">${play.clock?.displayValue || ''}</span>
+          <span style="width:20px"></span>
+          <span class="pbp-text">${play.text || play.shortText || ''}</span>
+          ${isScoring ? `<span class="pbp-score-update">${play.awayScore || 0}-${play.homeScore || 0}</span>` : ''}
+        </div>`;
+      }
+    }
+    html += '</div>';
+    return html;
+  }
+
+  // For other sports, use scoring plays + key events
+  const items = [...scoringPlays, ...keyEvents].sort((a, b) => {
+    const pA = a.period?.number || 0;
+    const pB = b.period?.number || 0;
+    if (pA !== pB) return pB - pA;
+    return 0;
+  });
+
+  if (!items.length && !allPlays.length) {
+    return '<p style="color:var(--text-secondary);padding:var(--space-lg)">No play-by-play data available</p>';
+  }
+
+  const league = team.league;
+  const periodLabel = league === 'NHL' ? 'P' : league === 'MLB' ? 'Inn ' : 'Q';
+
+  let html = '<div class="pbp-list">';
+  for (const play of items) {
+    const text = play.text || play.shortText || play.description || '';
+    const clock = play.clock?.displayValue || '';
+    const period = play.period?.number || play.period || '';
+    const teamData = play.team;
+    const logo = teamData?.logos?.[0]?.href || '';
+    const abbr = teamData?.abbreviation || '';
+    const score = play.awayScore != null ? `${play.awayScore}-${play.homeScore}` : '';
+    const isScoring = play.scoringPlay || play.awayScore != null;
+
+    html += `
+      <div class="pbp-event ${isScoring ? 'pbp-goal' : ''}">
+        <span class="pbp-time">${periodLabel}${period} ${clock}</span>
+        ${logo ? `<img src="${logo}" alt="${abbr}" class="pbp-team-logo" loading="lazy">` : '<span style="width:20px"></span>'}
+        <span class="pbp-text">${isScoring ? '<strong>' : ''}${text}${isScoring ? '</strong>' : ''}</span>
+        ${score ? `<span class="pbp-score-update">${score}</span>` : ''}
+      </div>`;
+  }
+  html += '</div>';
+  return html;
 }

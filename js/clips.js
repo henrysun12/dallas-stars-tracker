@@ -131,8 +131,8 @@ export async function renderClips(container) {
       allVideos.push(...vids);
     }
 
-    // Filter out videos with no playable URL
-    const playableVideos = allVideos.filter(v => v.videoUrl);
+    // Filter out videos with no web URL
+    const playableVideos = allVideos.filter(v => v.webUrl || v.videoUrl);
 
     if (!playableVideos.length) {
       renderEmpty(container, team);
@@ -172,10 +172,6 @@ function renderPage(container, team, videos) {
       </div>
     </div>`;
 
-  // Attach click handlers for video playback
-  container.querySelectorAll('.clip-card').forEach(card => {
-    card.addEventListener('click', () => handleCardClick(card));
-  });
 }
 
 function buildVideoCard(video, index) {
@@ -190,8 +186,10 @@ function buildVideoCard(video, index) {
   const dateStr = video.gameDate ? formatEspnDate(video.gameDate) : '';
   const metaParts = [gameContext, dateStr].filter(Boolean).join(' &middot; ');
 
+  const linkUrl = video.webUrl || video.videoUrl || '';
+
   return `
-    <div class="clip-card" data-video-url="${escapeAttr(video.videoUrl)}" data-headline="${escapeAttr(video.headline)}" data-index="${index}">
+    <a class="clip-card" href="${escapeAttr(linkUrl)}" target="_blank" rel="noopener" data-index="${index}" style="text-decoration:none;color:inherit">
       <div class="clip-thumbnail">
         ${thumbnailContent}
         <div class="clip-play-overlay">
@@ -203,38 +201,7 @@ function buildVideoCard(video, index) {
         <div class="clip-headline">${escapeHtml(video.headline)}</div>
         ${metaParts ? `<div class="clip-meta">${metaParts}</div>` : ''}
       </div>
-    </div>`;
-}
-
-function handleCardClick(card) {
-  const videoUrl = card.dataset.videoUrl;
-  const headline = card.dataset.headline || '';
-  if (!videoUrl) return;
-
-  // Check if already playing (clicking the card again should not re-create)
-  if (card.querySelector('video')) return;
-
-  card.classList.add('clip-card-playing');
-  card.innerHTML = `
-    <video controls autoplay playsinline style="width:100%;border-radius:var(--radius-md);display:block">
-      <source src="${escapeAttr(videoUrl)}" type="video/mp4">
-      Your browser does not support video playback.
-    </video>
-    <div class="clip-info">
-      <div class="clip-headline">${escapeHtml(headline)}</div>
-    </div>`;
-
-  // Remove click handler behavior by marking as playing
-  const videoEl = card.querySelector('video');
-  if (videoEl) {
-    videoEl.addEventListener('error', () => {
-      card.innerHTML = `
-        <div class="clip-info" style="padding:var(--space-lg);text-align:center">
-          <div class="clip-headline" style="color:var(--text-muted)">Video unavailable</div>
-          <div class="clip-meta">${escapeHtml(headline)}</div>
-        </div>`;
-    });
-  }
+    </a>`;
 }
 
 // ─── ESCAPE UTILITIES ────────────────────────────────

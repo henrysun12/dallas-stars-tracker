@@ -2119,12 +2119,15 @@ h3 { font-size: 1rem; font-weight: 600; margin-bottom: var(--space-sm); }
 }
 
 .clip-card {
+  display: block;
   background: var(--card-bg);
   border: 1px solid var(--card-border);
   border-radius: var(--radius-md);
   overflow: hidden;
   cursor: pointer;
   transition: transform 0.2s, border-color 0.2s;
+  text-decoration: none;
+  color: inherit;
 }
 .clip-card:hover {
   transform: translateY(-2px);
