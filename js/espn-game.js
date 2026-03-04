@@ -118,20 +118,22 @@ function renderGameData(container, data, team, liveMode) {
 
       ${isLive ? buildLiveScorebar(data, isOurGame, team) : ''}
 
-      ${boxscore || plays.length ? `
       <div class="view-toggle" id="espn-view-toggle">
         <button class="view-toggle-btn active" data-view="boxscore">Box Score</button>
         <button class="view-toggle-btn" data-view="pbp">Play-by-Play</button>
       </div>
       <div id="espn-view-content">
-        ${boxscore ? buildBoxScore(boxscore, usAbbr, oppAbbr) : ''}
-      </div>` : ''}
+        ${boxscore ? buildBoxScore(boxscore, usAbbr, oppAbbr) : buildEspnPlayByPlay(data, team)}
+      </div>
 
       ${buildVideoClips(data)}
       ${buildOddsSection(data)}
       ${leaders.length ? buildLeaders(leaders) : ''}
     </div>
   `;
+
+  // Wire video cards for inline playback
+  wireVideoCards(container);
 
   // Wire view toggle (box score / play-by-play)
   container.querySelectorAll('#espn-view-toggle .view-toggle-btn').forEach(btn => {
@@ -397,13 +399,14 @@ function buildVideoClips(data) {
     const mins = Math.floor(duration / 60);
     const secs = duration % 60;
     const durationStr = `${mins}:${secs.toString().padStart(2, '0')}`;
-    const webUrl = v.links?.web?.href || v.links?.source?.href || '';
+    const rawUrl = v.links?.source?.mezzanine?.href || v.links?.source?.HD?.href || v.links?.source?.href || '';
     const thumbnail = v.thumbnail || '';
 
-    if (!webUrl) return '';
+    if (!rawUrl) return '';
+    const proxyUrl = `/video-proxy?url=${encodeURIComponent(rawUrl)}`;
 
     return `
-      <a class="clip-card" href="${webUrl}" target="_blank" rel="noopener" style="text-decoration:none;color:inherit">
+      <div class="clip-card" data-video-url="${proxyUrl}" data-headline="${headline}">
         <div class="clip-thumbnail">
           ${thumbnail ? `<img src="${thumbnail}" alt="" loading="lazy">` : ''}
           <div class="clip-play-overlay"><div class="clip-play-btn"></div></div>
@@ -412,7 +415,7 @@ function buildVideoClips(data) {
         <div class="clip-info">
           <div class="clip-headline">${headline}</div>
         </div>
-      </a>`;
+      </div>`;
   }).filter(Boolean).join('');
 
   if (!cards) return '';
@@ -420,6 +423,22 @@ function buildVideoClips(data) {
   return `
     <h3 class="section-heading">Video Highlights</h3>
     <div class="clips-grid">${cards}</div>`;
+}
+
+function wireVideoCards(container) {
+  container.querySelectorAll('.clip-card[data-video-url]').forEach(card => {
+    card.addEventListener('click', () => {
+      if (card.classList.contains('clip-playing')) return;
+      const url = card.dataset.videoUrl;
+      const headline = card.dataset.headline || '';
+      card.classList.add('clip-playing');
+      card.innerHTML = `
+        <video controls autoplay playsinline style="width:100%;display:block;border-radius:var(--radius-md) var(--radius-md) 0 0">
+          <source src="${url}" type="video/mp4">
+        </video>
+        <div class="clip-info"><div class="clip-headline">${headline}</div></div>`;
+    });
+  });
 }
 
 function buildEspnPlayByPlay(data, team) {

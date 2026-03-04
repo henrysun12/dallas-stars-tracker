@@ -78,6 +78,15 @@ export async function renderGameDetail(container, gameId) {
           ${recapUrl ? `<a href="${recapUrl}" target="_blank" rel="noopener" class="recap-link">&#9654; Watch 3-Min Recap</a>` : ''}
         </div>
 
+        <div class="view-toggle" id="view-toggle">
+          <button class="view-toggle-btn ${activeView === 'boxscore' ? 'active' : ''}" data-view="boxscore">Box Score</button>
+          <button class="view-toggle-btn ${activeView === 'pbp' ? 'active' : ''}" data-view="pbp">Play-by-Play</button>
+        </div>
+
+        <div id="detail-view-content">
+          ${activeView === 'boxscore' ? buildBoxScoreView(boxscore, away, home) : buildPlayByPlay(pbp, away, home)}
+        </div>
+
         ${goals.length ? `
         <h3 class="section-heading">Goal Highlights</h3>
         <div class="goals-list">
@@ -87,15 +96,6 @@ export async function renderGameDetail(container, gameId) {
         ${buildVideoClips(espnSummary)}
 
         ${oddsData ? buildGameOdds(oddsData, away?.abbrev, home?.abbrev) : ''}
-
-        <div class="view-toggle" id="view-toggle">
-          <button class="view-toggle-btn ${activeView === 'boxscore' ? 'active' : ''}" data-view="boxscore">Box Score</button>
-          <button class="view-toggle-btn ${activeView === 'pbp' ? 'active' : ''}" data-view="pbp">Play-by-Play</button>
-        </div>
-
-        <div id="detail-view-content">
-          ${activeView === 'boxscore' ? buildBoxScoreView(boxscore, away, home) : buildPlayByPlay(pbp, away, home)}
-        </div>
       </div>
     `;
 
@@ -117,6 +117,9 @@ export async function renderGameDetail(container, gameId) {
 
     // Wire box score tabs
     wireBoxScoreTabs(container, boxscore);
+
+    // Wire video cards for inline playback
+    wireVideoCards(container);
 
   } catch (e) {
     console.error('Game detail error:', e);
@@ -651,13 +654,14 @@ function buildVideoClips(espnSummary) {
     const mins = Math.floor(duration / 60);
     const secs = duration % 60;
     const durationStr = `${mins}:${secs.toString().padStart(2, '0')}`;
-    const webUrl = v.links?.web?.href || v.links?.source?.href || '';
+    const rawUrl = v.links?.source?.mezzanine?.href || v.links?.source?.HD?.href || v.links?.source?.href || '';
     const thumbnail = v.thumbnail || '';
 
-    if (!webUrl) return '';
+    if (!rawUrl) return '';
+    const proxyUrl = `/video-proxy?url=${encodeURIComponent(rawUrl)}`;
 
     return `
-      <a class="clip-card" href="${webUrl}" target="_blank" rel="noopener" style="text-decoration:none;color:inherit">
+      <div class="clip-card" data-video-url="${proxyUrl}" data-headline="${headline}">
         <div class="clip-thumbnail">
           ${thumbnail ? `<img src="${thumbnail}" alt="" loading="lazy">` : ''}
           <div class="clip-play-overlay"><div class="clip-play-btn"></div></div>
@@ -666,7 +670,7 @@ function buildVideoClips(espnSummary) {
         <div class="clip-info">
           <div class="clip-headline">${headline}</div>
         </div>
-      </a>`;
+      </div>`;
   }).filter(Boolean).join('');
 
   if (!cards) return '';
@@ -674,5 +678,21 @@ function buildVideoClips(espnSummary) {
   return `
     <h3 class="section-heading">Video Highlights</h3>
     <div class="clips-grid">${cards}</div>`;
+}
+
+function wireVideoCards(container) {
+  container.querySelectorAll('.clip-card[data-video-url]').forEach(card => {
+    card.addEventListener('click', () => {
+      if (card.classList.contains('clip-playing')) return;
+      const url = card.dataset.videoUrl;
+      const headline = card.dataset.headline || '';
+      card.classList.add('clip-playing');
+      card.innerHTML = `
+        <video controls autoplay playsinline style="width:100%;display:block;border-radius:var(--radius-md) var(--radius-md) 0 0">
+          <source src="${url}" type="video/mp4">
+        </video>
+        <div class="clip-info"><div class="clip-headline">${headline}</div></div>`;
+    });
+  });
 }
 

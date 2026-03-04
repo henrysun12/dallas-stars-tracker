@@ -75,7 +75,7 @@ function extractVideos(summary, eventId) {
     description: v.description || '',
     duration: v.duration || 0,
     thumbnail: v.thumbnail || v.posterImages?.[0]?.href || '',
-    videoUrl: v.links?.source?.href || v.links?.source?.HLS?.href || '',
+    videoUrl: v.links?.source?.mezzanine?.href || v.links?.source?.HD?.href || v.links?.source?.href || '',
     webUrl: v.links?.web?.href || '',
     awayAbbr,
     homeAbbr,
@@ -131,8 +131,8 @@ export async function renderClips(container) {
       allVideos.push(...vids);
     }
 
-    // Filter out videos with no web URL
-    const playableVideos = allVideos.filter(v => v.webUrl || v.videoUrl);
+    // Filter out videos with no playable URL
+    const playableVideos = allVideos.filter(v => v.videoUrl);
 
     if (!playableVideos.length) {
       renderEmpty(container, team);
@@ -172,6 +172,8 @@ function renderPage(container, team, videos) {
       </div>
     </div>`;
 
+  // Attach click handlers for inline video playback
+  wireVideoCards(container);
 }
 
 function buildVideoCard(video, index) {
@@ -186,10 +188,10 @@ function buildVideoCard(video, index) {
   const dateStr = video.gameDate ? formatEspnDate(video.gameDate) : '';
   const metaParts = [gameContext, dateStr].filter(Boolean).join(' &middot; ');
 
-  const linkUrl = video.webUrl || video.videoUrl || '';
+  const proxyUrl = `/video-proxy?url=${encodeURIComponent(video.videoUrl)}`;
 
   return `
-    <a class="clip-card" href="${escapeAttr(linkUrl)}" target="_blank" rel="noopener" data-index="${index}" style="text-decoration:none;color:inherit">
+    <div class="clip-card" data-video-url="${escapeAttr(proxyUrl)}" data-headline="${escapeAttr(video.headline)}" data-index="${index}">
       <div class="clip-thumbnail">
         ${thumbnailContent}
         <div class="clip-play-overlay">
@@ -201,7 +203,33 @@ function buildVideoCard(video, index) {
         <div class="clip-headline">${escapeHtml(video.headline)}</div>
         ${metaParts ? `<div class="clip-meta">${metaParts}</div>` : ''}
       </div>
-    </a>`;
+    </div>`;
+}
+
+function wireVideoCards(container) {
+  container.querySelectorAll('.clip-card[data-video-url]').forEach(card => {
+    card.addEventListener('click', () => {
+      if (card.classList.contains('clip-playing')) return;
+      const url = card.dataset.videoUrl;
+      const headline = card.dataset.headline || '';
+      card.classList.add('clip-playing');
+      card.innerHTML = `
+        <video controls autoplay playsinline style="width:100%;display:block;border-radius:var(--radius-md) var(--radius-md) 0 0">
+          <source src="${escapeAttr(url)}" type="video/mp4">
+        </video>
+        <div class="clip-info"><div class="clip-headline">${escapeHtml(headline)}</div></div>`;
+      const videoEl = card.querySelector('video');
+      if (videoEl) {
+        videoEl.addEventListener('error', () => {
+          card.innerHTML = `
+            <div class="clip-info" style="padding:var(--space-lg);text-align:center">
+              <div class="clip-headline" style="color:var(--text-muted)">Video unavailable</div>
+              <div class="clip-meta">${escapeHtml(headline)}</div>
+            </div>`;
+        });
+      }
+    });
+  });
 }
 
 // ─── ESCAPE UTILITIES ────────────────────────────────
